@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 TMP_DIR="$(mktemp -d /tmp/wbb4_cdc_formal_XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
@@ -22,7 +22,7 @@ yosys -q -p "
         ${ROOT_DIR}/rtl/wb_b4_cdc.sv \
         ${ROOT_DIR}/rtl/wbb4_cdc_test_regfile.sv \
         ${ROOT_DIR}/rtl/wbb4_cdc_top.sv \
-        ${ROOT_DIR}/tb/formal_wbb4_cdc.sv;
+        ${ROOT_DIR}/verification/tb/formal_wbb4_cdc.sv;
     prep -top formal_wbb4_cdc;
     flatten;
     clk2fflogic;

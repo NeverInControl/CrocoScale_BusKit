@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PDK_BASE="${PDK_ROOT:-$HOME/.ciel/ihp-sg13/ihp-sg13cmos5l}"
 LIB_DIR="${PDK_BASE}/libs.ref/sg13cmos5l_stdcell/lib"
 

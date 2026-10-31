@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PDK_STDCELL_DIR="${PDK_ROOT:-$HOME/.ciel/ihp-sg13/ihp-sg13cmos5l}/libs.ref/sg13cmos5l_stdcell"
 LIB_PATH="${PDK_STDCELL_DIR}/lib/sg13cmos5l_stdcell_typ_1p20V_25C.lib"
 UDP_V="${PDK_STDCELL_DIR}/verilog/sg13cmos5l_udp.v"
@@ -95,7 +95,7 @@ for part in tb_part1_bursts_and_skew tb_part2_resets_and_aborts tb_part3_watchdo
         "${UDP_V}" \
         "${STDCELL_FUNC_V}" \
         "${GLS_NETLIST}" \
-        "${ROOT_DIR}/tb/${part}.sv"
+        "${ROOT_DIR}/verification/tb/${part}.sv"
     /usr/bin/vvp "${TMP_DIR}/${part}_gls.vvp"
 done
 
