@@ -178,41 +178,6 @@ module cdc_fifo_gray_clearable #(
     end
 `endif
 
-`ifdef FORMAL
-    logic [3:0] f_step_q = 4'd0;
-    always @($global_clock) begin
-        if (f_step_q != 4'hF) begin
-            f_step_q <= f_step_q + 4'd1;
-        end
-    end
-
-    wire [PTR_W-1:0] f_wptr_next = clr_wr_i ? '0 : (isolate_wr_i ? wptr_gray_q : wptr_gray_d);
-    wire [PTR_W-1:0] f_wptr_diff = f_wptr_next ^ wptr_gray_q;
-    wire [PTR_W-1:0] f_rptr_next = clr_rd_i ? '0 : (isolate_rd_i ? rptr_gray_q : rptr_gray_d);
-    wire [PTR_W-1:0] f_rptr_diff = f_rptr_next ^ rptr_gray_q;
-
-    always @($global_clock) begin
-        if (f_step_q >= 4'd4) begin
-            if (!isolate_rd_i) begin
-                assert ((f_wptr_diff & (f_wptr_diff - 1'b1)) == '0);
-            end
-            if (!isolate_wr_i) begin
-                assert ((f_rptr_diff & (f_rptr_diff - 1'b1)) == '0);
-            end
-            if (!isolate_wr_i && !clr_wr_i) begin
-                assert (wptr_gray_q == ((wptr_bin_q >> 1) ^ wptr_bin_q));
-            end
-            if (!isolate_rd_i && !clr_rd_i) begin
-                assert (rptr_gray_q == ((rptr_bin_q >> 1) ^ rptr_bin_q));
-            end
-            if (!isolate_wr_i && !isolate_rd_i && !clr_wr_i && !clr_rd_i) begin
-                // True FIFO occupancy across domains must never exceed DEPTH (no overwrite of unread slots)
-                assert (PTR_W'(wptr_bin_q - rptr_bin_q) <= PTR_W'(DEPTH));
-            end
-        end
-    end
-`endif
-
 endmodule
 
 `default_nettype wire

@@ -590,12 +590,356 @@ module tb_part4_standalone_slave #(
                  err_cnt);
     endtask
 
+    // --------------------------------------------------------------------------
+    // Suite 13F: Parameter Corner Sweep
+    //   - ADDR_W = 32, DATA_W = 32 (full 32-bit address & data buses)
+    //   - SYNC_STAGES = 3 (corners 0, 2) and SYNC_STAGES = 4 (corners 1, 3)
+    //   - All 4 (EN_GATE_TIMEOUT, EN_RESP_TIMEOUT) combinations:
+    //       Corner 0: EN_GATE_TIMEOUT=0, EN_RESP_TIMEOUT=0, SYNC_STAGES=3
+    //       Corner 1: EN_GATE_TIMEOUT=1, EN_RESP_TIMEOUT=0, SYNC_STAGES=4
+    //       Corner 2: EN_GATE_TIMEOUT=0, EN_RESP_TIMEOUT=1, SYNC_STAGES=3
+    //       Corner 3: EN_GATE_TIMEOUT=1, EN_RESP_TIMEOUT=1, SYNC_STAGES=4
+    // --------------------------------------------------------------------------
+    localparam int CORNER_TIMEOUT_CYCLES = 24;
+
+    logic        c_s_cyc           [0:3];
+    logic        c_s_stb           [0:3];
+    logic        c_s_we            [0:3];
+    logic [31:0] c_s_adr           [0:3];
+    logic [31:0] c_s_dat           [0:3];
+    wire         c_s_stall         [0:3];
+    wire         c_s_ack           [0:3];
+    wire         c_s_err           [0:3];
+    wire  [31:0] c_s_dat_o         [0:3];
+    logic        c_slv_force_stall [0:3];
+    logic        c_slv_hold_ack    [0:3];
+    logic        c_slv_force_rst   [0:3];
+
+    generate
+        for (genvar g = 0; g < 4; g++) begin : g_corner
+            wire        cm_cyc;
+            wire        cm_stb;
+            wire        cm_we;
+            wire [31:0] cm_adr;
+            wire [31:0] cm_dat;
+            logic       cm_ack   = 1'b0;
+            logic       cm_err   = 1'b0;
+            logic [31:0] cm_dat_i = 32'h0;
+
+            wb_b4_cdc #(
+                .ADDR_W              (32),
+                .DATA_W              (32),
+                .FIFO_DEPTH_LOG2     (FIFO_DEPTH_LOG2),
+                .SYNC_STAGES         ((g % 2 == 0) ? 3 : 4),
+                .EN_GATE_TIMEOUT     (((g & 1) != 0) ? 1 : 0),
+                .GATE_TIMEOUT_CYCLES (CORNER_TIMEOUT_CYCLES),
+                .EN_RESP_TIMEOUT     (((g & 2) != 0) ? 1 : 0),
+                .RESP_TIMEOUT_CYCLES (CORNER_TIMEOUT_CYCLES)
+            ) u_corner_dut (
+                .clk_wb_i     (clk_wb),
+                .rst_wb_i     (rst_wb),
+                .s_wb_cyc_i   (c_s_cyc[g]),
+                .s_wb_stb_i   (c_s_stb[g]),
+                .s_wb_we_i    (c_s_we[g]),
+                .s_wb_adr_i   (c_s_adr[g]),
+                .s_wb_dat_i   (c_s_dat[g]),
+                .s_wb_stall_o (c_s_stall[g]),
+                .s_wb_ack_o   (c_s_ack[g]),
+                .s_wb_err_o   (c_s_err[g]),
+                .s_wb_dat_o   (c_s_dat_o[g]),
+
+                .clk_slv_i    (clk_slv),
+                .rst_slv_i    (rst_slv | c_slv_force_rst[g]),
+                .m_wb_cyc_o   (cm_cyc),
+                .m_wb_stb_o   (cm_stb),
+                .m_wb_we_o    (cm_we),
+                .m_wb_adr_o   (cm_adr),
+                .m_wb_dat_o   (cm_dat),
+                .m_wb_stall_i (c_slv_force_stall[g]),
+                .m_wb_ack_i   (cm_ack),
+                .m_wb_err_i   (cm_err),
+                .m_wb_dat_i   (cm_dat_i)
+            );
+
+            logic [31:0] c_mem_adr [0:3];
+            logic [31:0] c_mem_dat [0:3];
+            logic        cq_we     [0:15];
+            logic [31:0] cq_adr    [0:15];
+            logic [31:0] cq_dat    [0:15];
+            int          cq_head = 0;
+            int          cq_tail = 0;
+            int          cq_cnt  = 0;
+
+            always @(posedge clk_slv) begin
+                if (rst_slv || (!cm_cyc && (cq_cnt > 0))) begin
+                    cq_head  <= 0;
+                    cq_tail  <= 0;
+                    cq_cnt   <= 0;
+                    cm_ack   <= 1'b0;
+                    cm_err   <= 1'b0;
+                    cm_dat_i <= 32'h0;
+                end else begin
+                    cm_ack   <= 1'b0;
+                    cm_err   <= 1'b0;
+                    cm_dat_i <= 32'h0;
+
+                    if (!c_slv_hold_ack[g] && (cq_cnt > 0) && cm_cyc) begin
+                        cm_ack <= 1'b1;
+                        if (cq_we[cq_head]) begin
+                            c_mem_adr[cq_adr[cq_head][3:2]] <= cq_adr[cq_head];
+                            c_mem_dat[cq_adr[cq_head][3:2]] <= cq_dat[cq_head];
+                            cm_dat_i <= 32'h0;
+                        end else begin
+                            if (c_mem_adr[cq_adr[cq_head][3:2]] === cq_adr[cq_head]) begin
+                                cm_dat_i <= c_mem_dat[cq_adr[cq_head][3:2]];
+                            end else begin
+                                cm_dat_i <= 32'hBAD0_ADD0;
+                            end
+                        end
+                        cq_head = (cq_head + 1) % 16;
+                        cq_cnt  = cq_cnt - 1;
+                    end
+
+                    if (cm_cyc && cm_stb && !c_slv_force_stall[g]) begin
+                        cq_we[cq_tail]  = cm_we;
+                        cq_adr[cq_tail] = cm_adr;
+                        cq_dat[cq_tail] = cm_dat;
+                        cq_tail         = (cq_tail + 1) % 16;
+                        cq_cnt          = cq_cnt + 1;
+                    end
+                end
+            end
+        end
+    endgenerate
+
+    task automatic wait_corner_ready(input int c);
+        int guard;
+        guard = 0;
+        while (c_s_stall[c] && (guard < 500)) begin
+            @(posedge clk_wb);
+            guard++;
+        end
+        if (c_s_stall[c]) begin
+            $display("[ERR] Corner %0d stuck in stall after 500 cycles at %0t!", c, $time);
+            test_errors++;
+        end
+    endtask
+
+    task automatic run_test_f();
+        logic [31:0] test_adrs [0:3];
+        logic [31:0] test_dats [0:3];
+        int          issued;
+        int          rcvd;
+        int          guard;
+        bit          saw_err;
+        bit          saw_ack;
+        bit          en_gate;
+        bit          en_resp;
+
+        $display("[SUITE 13F] Parameter Corner Sweep (32-bit ADDR/DATA, SYNC_STAGES=3..4, EN_GATE/RESP_TIMEOUT={0,1})...");
+        test_adrs[0] = 32'h8000_1000; test_dats[0] = 32'h1122_3344;
+        test_adrs[1] = 32'hA5A5_2004; test_dats[1] = 32'h5566_7788;
+        test_adrs[2] = 32'hDEAD_BEE8; test_dats[2] = 32'h99AA_BBCC;
+        test_adrs[3] = 32'hFFFF_FFFC; test_dats[3] = 32'hDDEE_FF00;
+
+        for (int c = 0; c < 4; c++) begin
+            en_gate = ((c & 1) != 0);
+            en_resp = ((c & 2) != 0);
+            c_slv_force_stall[c] = 1'b0;
+            c_slv_hold_ack[c]    = 1'b0;
+            wait_corner_ready(c);
+
+            // 1. 32-bit Pipelined Write Burst + Readback Verification
+            for (int dir = 0; dir < 2; dir++) begin
+                issued = 0;
+                rcvd   = 0;
+                guard  = 0;
+                @(posedge clk_wb);
+                c_s_cyc[c] <= 1'b1;
+                c_s_stb[c] <= 1'b1;
+                c_s_we[c]  <= (dir == 0);
+                c_s_adr[c] <= test_adrs[0];
+                c_s_dat[c] <= (dir == 0) ? test_dats[0] : 32'h0;
+
+                while ((rcvd < 4) && (guard < 500)) begin
+                    @(posedge clk_wb);
+                    guard++;
+                    if (c_s_cyc[c] && c_s_stb[c] && !c_s_stall[c]) begin
+                        issued++;
+                        if (issued < 4) begin
+                            c_s_stb[c] <= 1'b1;
+                            c_s_adr[c] <= test_adrs[issued];
+                            c_s_dat[c] <= (dir == 0) ? test_dats[issued] : 32'h0;
+                        end else begin
+                            c_s_stb[c] <= 1'b0;
+                        end
+                    end
+                    if (c_s_ack[c] || c_s_err[c]) begin
+                        if (c_s_err[c]) begin
+                            $display("[ERR] Suite 13F corner %0d unexpected ERR during 32-bit burst", c);
+                            test_errors++;
+                        end else if ((dir == 1) && (c_s_dat_o[c] !== test_dats[rcvd])) begin
+                            $display("[ERR] Suite 13F corner %0d 32-bit read mismatch: got 0x%08x, exp 0x%08x",
+                                     c, c_s_dat_o[c], test_dats[rcvd]);
+                            test_errors++;
+                        end
+                        rcvd++;
+                    end
+                end
+                c_s_cyc[c] <= 1'b0;
+                c_s_stb[c] <= 1'b0;
+                @(posedge clk_wb);
+                if (rcvd != 4) begin
+                    $display("[ERR] Suite 13F corner %0d timeout during 32-bit burst (rcvd=%0d/4)", c, rcvd);
+                    test_errors++;
+                end
+            end
+
+            // 2. Response Timeout Selective Enable Test (hold slave ACK for 40 clk_wb cycles > 24 limit)
+            c_slv_hold_ack[c] = 1'b1;
+            saw_err           = 1'b0;
+            saw_ack           = 1'b0;
+            @(posedge clk_wb);
+            c_s_cyc[c] <= 1'b1;
+            c_s_stb[c] <= 1'b1;
+            c_s_we[c]  <= 1'b0;
+            c_s_adr[c] <= test_adrs[0];
+
+            for (int cyc = 0; cyc < 40; cyc++) begin
+                @(posedge clk_wb);
+                if (c_s_cyc[c] && c_s_stb[c] && !c_s_stall[c]) begin
+                    c_s_stb[c] <= 1'b0;
+                end
+                if (c_s_err[c]) saw_err = 1'b1;
+                if (c_s_ack[c]) saw_ack = 1'b1;
+            end
+
+            if (en_resp) begin
+                if (!saw_err) begin
+                    $display("[ERR] Suite 13F corner %0d (EN_RESP_TIMEOUT=1) failed to fire response timeout!", c);
+                    test_errors++;
+                end
+                c_s_cyc[c]        <= 1'b0;
+                c_s_stb[c]        <= 1'b0;
+                c_slv_hold_ack[c] <= 1'b0;
+                @(posedge clk_wb);
+                wait_corner_ready(c);
+            end else begin
+                if (saw_err) begin
+                    $display("[ERR] Suite 13F corner %0d (EN_RESP_TIMEOUT=0) falsely fired response timeout!", c);
+                    test_errors++;
+                end
+                c_slv_hold_ack[c] = 1'b0;
+                guard = 0;
+                while (!saw_ack && (guard < 200)) begin
+                    @(posedge clk_wb);
+                    guard++;
+                    if (c_s_err[c]) saw_err = 1'b1;
+                    if (c_s_ack[c]) begin
+                        saw_ack = 1'b1;
+                        if (c_s_dat_o[c] !== test_dats[0]) begin
+                            $display("[ERR] Suite 13F corner %0d delayed read mismatch: got 0x%08x, exp 0x%08x",
+                                     c, c_s_dat_o[c], test_dats[0]);
+                            test_errors++;
+                        end
+                    end
+                end
+                if (!saw_ack || saw_err) begin
+                    $display("[ERR] Suite 13F corner %0d (EN_RESP_TIMEOUT=0) did not complete delayed read cleanly!", c);
+                    test_errors++;
+                end
+                c_s_cyc[c] <= 1'b0;
+                c_s_stb[c] <= 1'b0;
+                @(posedge clk_wb);
+            end
+
+            // 3. Gate Timeout Selective Enable Test (hold slave domain in reset so s_wb_stall_o=1 with outstanding_cnt=0)
+            c_slv_force_rst[c] = 1'b1;
+            guard = 0;
+            while (!c_s_stall[c] && (guard < 100)) begin
+                @(posedge clk_wb);
+                guard++;
+            end
+
+            saw_err = 1'b0;
+            saw_ack = 1'b0;
+            @(posedge clk_wb);
+            c_s_cyc[c] <= 1'b1;
+            c_s_stb[c] <= 1'b1;
+            c_s_we[c]  <= 1'b0;
+            c_s_adr[c] <= test_adrs[1];
+
+            for (int cyc = 0; cyc < 40; cyc++) begin
+                @(posedge clk_wb);
+                if (c_s_cyc[c] && c_s_stb[c] && !c_s_stall[c]) begin
+                    c_s_stb[c] <= 1'b0;
+                end
+                if (c_s_err[c]) saw_err = 1'b1;
+                if (c_s_ack[c]) saw_ack = 1'b1;
+            end
+
+            if (en_gate) begin
+                if (!saw_err) begin
+                    $display("[ERR] Suite 13F corner %0d (EN_GATE_TIMEOUT=1) failed to fire gate timeout!", c);
+                    test_errors++;
+                end
+                c_s_cyc[c]         <= 1'b0;
+                c_s_stb[c]         <= 1'b0;
+                c_slv_force_rst[c] <= 1'b0;
+                @(posedge clk_wb);
+                wait_corner_ready(c);
+            end else begin
+                if (saw_err || !c_s_stall[c]) begin
+                    $display("[ERR] Suite 13F corner %0d (EN_GATE_TIMEOUT=0) falsely fired gate timeout or unstalled!", c);
+                    test_errors++;
+                end
+                // Release slave reset and verify the waiting read completes cleanly with ACK
+                c_slv_force_rst[c] = 1'b0;
+                guard = 0;
+                while (!saw_ack && (guard < 200)) begin
+                    @(posedge clk_wb);
+                    guard++;
+                    if (c_s_cyc[c] && c_s_stb[c] && !c_s_stall[c]) begin
+                        c_s_stb[c] <= 1'b0;
+                    end
+                    if (c_s_err[c]) saw_err = 1'b1;
+                    if (c_s_ack[c]) begin
+                        saw_ack = 1'b1;
+                        if (c_s_dat_o[c] !== test_dats[1]) begin
+                            $display("[ERR] Suite 13F corner %0d post-gate-stall read mismatch: got 0x%08x, exp 0x%08x",
+                                     c, c_s_dat_o[c], test_dats[1]);
+                            test_errors++;
+                        end
+                    end
+                end
+                if (!saw_ack || saw_err) begin
+                    $display("[ERR] Suite 13F corner %0d (EN_GATE_TIMEOUT=0) failed to complete read after reset release!", c);
+                    test_errors++;
+                end
+                c_s_cyc[c] <= 1'b0;
+                c_s_stb[c] <= 1'b0;
+                @(posedge clk_wb);
+            end
+        end
+        $display("  [PASS] Suite 13F completed (all 4 watchdog enable combos, 32-bit buses, SYNC_STAGES=3,4 verified).");
+    endtask
+
     initial begin
         $display("======================================================================");
         $display(" Part 4: Standalone wb_b4_cdc Multi-Cycle Stalling Slave Stress");
         $display("======================================================================");
         for (int i = 0; i < (1<<ADDR_W); i++) begin
             slv_mem[i] = DATA_W'(i * 17);
+        end
+        for (int c = 0; c < 4; c++) begin
+            c_s_cyc[c]           = 1'b0;
+            c_s_stb[c]           = 1'b0;
+            c_s_we[c]            = 1'b0;
+            c_s_adr[c]           = 32'h0;
+            c_s_dat[c]           = 32'h0;
+            c_slv_force_stall[c] = 1'b0;
+            c_slv_hold_ack[c]    = 1'b0;
+            c_slv_force_rst[c]   = 1'b0;
         end
 
         rst_wb  = 1'b1;
@@ -610,6 +954,7 @@ module tb_part4_standalone_slave #(
         run_test_c();
         run_test_d();
         run_test_e();
+        run_test_f();
 
         if ((test_errors == 0) && (protocol_errors == 0)) begin
             $display("----------------------------------------------------------------------");
