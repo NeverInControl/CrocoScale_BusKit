@@ -62,15 +62,19 @@ yosys -q -p "
         ${ROOT_DIR}/rtl/wb_b4_cdc.sv \
         ${ROOT_DIR}/rtl/wbb4_cdc_test_regfile.sv \
         ${ROOT_DIR}/rtl/wbb4_cdc_top.sv;
+    copy wbb4_cdc_top wbb4_cdc_top_d2;
+    copy wbb4_cdc_top wbb4_cdc_top_d1;
     copy wbb4_cdc_top wbb4_cdc_top_deep;
     copy wbb4_cdc_top wbb4_cdc_top_wait_forever;
-    chparam -set GATE_TIMEOUT_CYCLES 32 -set RESP_TIMEOUT_CYCLES 32 wbb4_cdc_top;
+    chparam -set FIFO_DEPTH_LOG2 3 -set GATE_TIMEOUT_CYCLES 32 -set RESP_TIMEOUT_CYCLES 32 wbb4_cdc_top;
+    chparam -set FIFO_DEPTH_LOG2 2 -set GATE_TIMEOUT_CYCLES 32 -set RESP_TIMEOUT_CYCLES 32 wbb4_cdc_top_d2;
+    chparam -set FIFO_DEPTH_LOG2 1 -set GATE_TIMEOUT_CYCLES 32 -set RESP_TIMEOUT_CYCLES 32 wbb4_cdc_top_d1;
     chparam -set FIFO_DEPTH_LOG2 4 -set SYNC_STAGES 3 -set GATE_TIMEOUT_CYCLES 32 -set RESP_TIMEOUT_CYCLES 32 wbb4_cdc_top_deep;
     chparam -set EN_GATE_TIMEOUT 0 -set EN_RESP_TIMEOUT 0 -set GATE_TIMEOUT_CYCLES 32 -set RESP_TIMEOUT_CYCLES 32 wbb4_cdc_top_wait_forever;
     hierarchy -check;
     synth;
     setattr -mod -unset keep_hierarchy *;
-    flatten wbb4_cdc_top wbb4_cdc_top_deep wbb4_cdc_top_wait_forever;
+    flatten wbb4_cdc_top wbb4_cdc_top_d2 wbb4_cdc_top_d1 wbb4_cdc_top_deep wbb4_cdc_top_wait_forever;
     opt -fast;
     dfflibmap -liberty ${LIB_PATH};
     abc -liberty ${LIB_PATH};
@@ -87,15 +91,23 @@ SYNC_META_CNT=$(grep -c "sg13cmos5l_dfrbpq_1_sync_meta" "${GLS_NETLIST}" || true
 echo " Injected 2.0-ns setup-window CDC skew model on ${SYNC_META_CNT} Stage-0 gate-level sync flops."
 
 echo "======================================================================"
-echo " Running Gate-Level Simulation (GLS) with ihp-sg13cmos5l UDP Cells..."
+echo " Running Gate-Level Simulation (GLS) across FIFO_DEPTH_LOG2 = 3, 2, 1..."
 echo "======================================================================"
-for part in tb_part1_bursts_and_skew tb_part2_resets_and_aborts tb_part3_watchdogs_and_stress; do
-    /usr/bin/iverilog -g2012 -gno-specify -DGATE_LEVEL_SIM \
-        -o "${TMP_DIR}/${part}_gls.vvp" \
-        "${UDP_V}" \
-        "${STDCELL_FUNC_V}" \
-        "${GLS_NETLIST}" \
-        "${ROOT_DIR}/verification/tb/${part}.sv"
-    /usr/bin/vvp "${TMP_DIR}/${part}_gls.vvp"
+for depth_log2 in 3 2 1; do
+    gls_mod="wbb4_cdc_top"
+    if [[ "${depth_log2}" == "2" ]]; then gls_mod="wbb4_cdc_top_d2"; fi
+    if [[ "${depth_log2}" == "1" ]]; then gls_mod="wbb4_cdc_top_d1"; fi
+    echo ">>> GLS FIFO_DEPTH_LOG2 = ${depth_log2} (${gls_mod}, $((1 << depth_log2)) entries) <<<"
+    for part in tb_part1_bursts_and_skew tb_part2_resets_and_aborts tb_part3_watchdogs_and_stress; do
+        /usr/bin/iverilog -g2012 -gno-specify -DGATE_LEVEL_SIM \
+            -DGLS_DUT_NAME=${gls_mod} \
+            -P${part}.FIFO_DEPTH_LOG2=${depth_log2} \
+            -o "${TMP_DIR}/${part}_gls_d${depth_log2}.vvp" \
+            "${UDP_V}" \
+            "${STDCELL_FUNC_V}" \
+            "${GLS_NETLIST}" \
+            "${ROOT_DIR}/verification/tb/${part}.sv"
+        /usr/bin/vvp "${TMP_DIR}/${part}_gls_d${depth_log2}.vvp"
+    done
 done
 

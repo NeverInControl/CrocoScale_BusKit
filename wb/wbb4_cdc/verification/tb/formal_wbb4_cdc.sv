@@ -7,7 +7,9 @@
 
 `default_nettype none
 
-module formal_wbb4_cdc (
+module formal_wbb4_cdc #(
+    parameter int FIFO_DEPTH_LOG2 = 2
+) (
     input wire clk_fab_i,
     input wire clk_dll_i,
     input wire rst_fab_i,
@@ -16,7 +18,6 @@ module formal_wbb4_cdc (
 
     localparam int ADDR_W              = 2;
     localparam int DATA_W              = 4;
-    localparam int FIFO_DEPTH_LOG2     = 2;
     localparam int FIFO_DEPTH          = 1 << FIFO_DEPTH_LOG2;
     localparam int CNT_W               = FIFO_DEPTH_LOG2 + 3;
     localparam int SYNC_STAGES         = 2;

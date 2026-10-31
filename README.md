@@ -93,12 +93,16 @@ Everything else directly into the fabric.
 
 ---
 
-## 130nm Size
+## 130nm Size (`ihp-sg13cmos5l` @ 50% Placement Density)
 
-Estimated area at 50% density: `200 µm x 200 µm`
+| `FIFO_DEPTH_LOG2` | FIFO Entries | Standard Cells | Flip-Flops | Cell Area | 50%-Density Macro Box | Area Saved |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`3` (Default)** | `8` | `1,132` | `230` | `20,290 µm²` | **`201 µm × 201 µm`** (`40,580 µm²`) | Baseline |
+| **`2`** | `4` | `830` | `167` | `14,551 µm²` | **`171 µm × 171 µm`** (`29,102 µm²`) | **`-28.3%`** |
+| **`1`** | `2` | `668` | `126` | `10,904 µm²` | **`148 µm × 148 µm`** (`21,809 µm²`) | **`-46.3%`** |
 
-In case this is too big:
-* Reduce `FIFO_DEPTH_LOG2` in [`wbb4_cdc_top.sv`](wb/wbb4_cdc/rtl/wbb4_cdc_top.sv) down to `2` (4 entries) or `1` (2 entries; minimum valid value is `1` — do not set to `0`).
+In case `200 µm × 200 µm` is too big:
+* Reduce `FIFO_DEPTH_LOG2` in [`wbb4_cdc_top.sv`](wb/wbb4_cdc/rtl/wbb4_cdc_top.sv) down to `2` (`4` entries, `-28.3%` area) or `1` (`2` entries, `-46.3%` area; minimum valid value is `1` — do not set to `0`). All three depths (`3`, `2`, and `1`) are verified automatically by `run_all_checks.sh`.
 
 ---
 

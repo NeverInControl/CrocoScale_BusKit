@@ -15,7 +15,7 @@ module tb_part2_resets_and_aborts;
 
     localparam int ADDR_W              = 2;
     localparam int DATA_W              = 4;
-    localparam int FIFO_DEPTH_LOG2     = 3;
+    parameter  int FIFO_DEPTH_LOG2     = 3;
     localparam int SYNC_STAGES         = 2;
     localparam int GATE_TIMEOUT_CYCLES = 32;
     localparam int RESP_TIMEOUT_CYCLES = 32;
@@ -47,7 +47,10 @@ module tb_part2_resets_and_aborts;
     logic [DATA_W-1:0] wb_rdat;
 
 `ifdef GATE_LEVEL_SIM
-    wbb4_cdc_top u_dut (
+    `ifndef GLS_DUT_NAME
+        `define GLS_DUT_NAME wbb4_cdc_top
+    `endif
+    `GLS_DUT_NAME u_dut (
 `else
     wbb4_cdc_top #(
         .ADDR_W              (ADDR_W),

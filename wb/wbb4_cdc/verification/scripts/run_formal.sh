@@ -46,68 +46,72 @@ echo "======================================================================"
 yosys-smtbmc -s yices -t "${COVER_STEPS}" -c "${SMT2_FILE}"
 
 echo "======================================================================"
-echo " Running Formal RTL-to-Gate Equivalence Proof (ihp-sg13cmos5l)..."
+echo " Running Formal RTL-to-Gate Equivalence Proof (FIFO_DEPTH_LOG2 = 3, 2, 1)..."
 echo "======================================================================"
 LIB_PATH="${PDK_ROOT:-$HOME/.ciel/ihp-sg13/ihp-sg13cmos5l}/libs.ref/sg13cmos5l_stdcell/lib/sg13cmos5l_stdcell_typ_1p20V_25C.lib"
-yosys -q -p "
-    read_verilog -sv \
-        ${ROOT_DIR}/rtl/cdc_gray_reg.sv \
-        ${ROOT_DIR}/rtl/cdc_sync_2ff.sv \
-        ${ROOT_DIR}/rtl/rst_sync_aasd.sv \
-        ${ROOT_DIR}/rtl/cdc_reset_ctrlr.sv \
-        ${ROOT_DIR}/rtl/cdc_fifo_gray_clearable.sv \
-        ${ROOT_DIR}/rtl/wb_b4_cdc.sv \
-        ${ROOT_DIR}/rtl/wbb4_cdc_test_regfile.sv \
-        ${ROOT_DIR}/rtl/wbb4_cdc_top.sv;
-    prep -top wbb4_cdc_top;
-    setattr -mod -unset keep_hierarchy *;
-    flatten;
-    memory_map;
-    async2sync;
-    opt_expr;
-    opt_merge;
-    opt_dff;
-    opt_clean;
-    design -stash gold;
+for depth_log2 in 3 2 1; do
+    yosys -q -p "
+        read_verilog -sv \
+            ${ROOT_DIR}/rtl/cdc_gray_reg.sv \
+            ${ROOT_DIR}/rtl/cdc_sync_2ff.sv \
+            ${ROOT_DIR}/rtl/rst_sync_aasd.sv \
+            ${ROOT_DIR}/rtl/cdc_reset_ctrlr.sv \
+            ${ROOT_DIR}/rtl/cdc_fifo_gray_clearable.sv \
+            ${ROOT_DIR}/rtl/wb_b4_cdc.sv \
+            ${ROOT_DIR}/rtl/wbb4_cdc_test_regfile.sv \
+            ${ROOT_DIR}/rtl/wbb4_cdc_top.sv;
+        chparam -set FIFO_DEPTH_LOG2 ${depth_log2} wbb4_cdc_top;
+        prep -top wbb4_cdc_top;
+        setattr -mod -unset keep_hierarchy *;
+        flatten;
+        memory_map;
+        async2sync;
+        opt_expr;
+        opt_merge;
+        opt_dff;
+        opt_clean;
+        design -stash gold;
 
-    read_liberty -lib ${LIB_PATH};
-    read_verilog -sv \
-        ${ROOT_DIR}/rtl/cdc_gray_reg.sv \
-        ${ROOT_DIR}/rtl/cdc_sync_2ff.sv \
-        ${ROOT_DIR}/rtl/rst_sync_aasd.sv \
-        ${ROOT_DIR}/rtl/cdc_reset_ctrlr.sv \
-        ${ROOT_DIR}/rtl/cdc_fifo_gray_clearable.sv \
-        ${ROOT_DIR}/rtl/wb_b4_cdc.sv \
-        ${ROOT_DIR}/rtl/wbb4_cdc_test_regfile.sv \
-        ${ROOT_DIR}/rtl/wbb4_cdc_top.sv;
-    synth -nofsm -top wbb4_cdc_top;
-    setattr -mod -unset keep_hierarchy *;
-    flatten;
-    dfflibmap -liberty ${LIB_PATH};
-    abc -liberty ${LIB_PATH};
-    hilomap -hicell sg13cmos5l_tiehi L_HI -locell sg13cmos5l_tielo L_LO;
-    opt_clean -purge;
-    write_verilog -noattr -noexpr ${TMP_DIR}/gate_netlist.v;
+        read_liberty -lib ${LIB_PATH};
+        read_verilog -sv \
+            ${ROOT_DIR}/rtl/cdc_gray_reg.sv \
+            ${ROOT_DIR}/rtl/cdc_sync_2ff.sv \
+            ${ROOT_DIR}/rtl/rst_sync_aasd.sv \
+            ${ROOT_DIR}/rtl/cdc_reset_ctrlr.sv \
+            ${ROOT_DIR}/rtl/cdc_fifo_gray_clearable.sv \
+            ${ROOT_DIR}/rtl/wb_b4_cdc.sv \
+            ${ROOT_DIR}/rtl/wbb4_cdc_test_regfile.sv \
+            ${ROOT_DIR}/rtl/wbb4_cdc_top.sv;
+        chparam -set FIFO_DEPTH_LOG2 ${depth_log2} wbb4_cdc_top;
+        synth -nofsm -top wbb4_cdc_top;
+        setattr -mod -unset keep_hierarchy *;
+        flatten;
+        dfflibmap -liberty ${LIB_PATH};
+        abc -liberty ${LIB_PATH};
+        hilomap -hicell sg13cmos5l_tiehi L_HI -locell sg13cmos5l_tielo L_LO;
+        opt_clean -purge;
+        write_verilog -noattr -noexpr ${TMP_DIR}/gate_netlist_d${depth_log2}.v;
 
-    design -reset;
-    read_liberty -ignore_miss_func ${LIB_PATH};
-    read_verilog ${TMP_DIR}/gate_netlist.v;
-    prep -top wbb4_cdc_top;
-    flatten;
-    async2sync;
-    opt_expr;
-    opt_dff;
-    opt_clean;
-    design -stash gate;
+        design -reset;
+        read_liberty -ignore_miss_func ${LIB_PATH};
+        read_verilog ${TMP_DIR}/gate_netlist_d${depth_log2}.v;
+        prep -top wbb4_cdc_top;
+        flatten;
+        async2sync;
+        opt_expr;
+        opt_dff;
+        opt_clean;
+        design -stash gate;
 
-    design -copy-from gold -as gold wbb4_cdc_top;
-    design -copy-from gate -as gate wbb4_cdc_top;
-    equiv_make gold gate equiv;
-    prep -top equiv;
-    opt_clean;
-    equiv_simple -seq 5;
-    equiv_induct -seq 5;
-    equiv_status -assert o:*;
-"
-echo "Formal RTL-to-Gate Equivalence Proof (wbb4_cdc_top): PASSED (100% proven)"
+        design -copy-from gold -as gold wbb4_cdc_top;
+        design -copy-from gate -as gate wbb4_cdc_top;
+        equiv_make gold gate equiv;
+        prep -top equiv;
+        opt_clean;
+        equiv_simple -seq 5;
+        equiv_induct -seq 5;
+        equiv_status -assert o:*;
+    "
+    echo "Formal RTL-to-Gate Equivalence Proof (wbb4_cdc_top, FIFO_DEPTH_LOG2=${depth_log2}): PASSED (100% proven)"
+done
 

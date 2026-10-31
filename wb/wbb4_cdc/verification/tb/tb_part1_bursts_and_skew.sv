@@ -17,7 +17,7 @@ module tb_part1_bursts_and_skew;
 
     localparam int ADDR_W              = 2;
     localparam int DATA_W              = 4;
-    localparam int FIFO_DEPTH_LOG2     = 3;
+    parameter  int FIFO_DEPTH_LOG2     = 3;
     localparam int SYNC_STAGES         = 2;
     localparam int GATE_TIMEOUT_CYCLES = 32;
     localparam int RESP_TIMEOUT_CYCLES = 32;
@@ -49,7 +49,10 @@ module tb_part1_bursts_and_skew;
     logic [DATA_W-1:0] wb_rdat;
 
 `ifdef GATE_LEVEL_SIM
-    wbb4_cdc_top u_dut (
+    `ifndef GLS_DUT_NAME
+        `define GLS_DUT_NAME wbb4_cdc_top
+    `endif
+    `GLS_DUT_NAME u_dut (
 `else
     wbb4_cdc_top #(
         .ADDR_W              (ADDR_W),
@@ -325,11 +328,22 @@ module tb_part1_bursts_and_skew;
         wb_cyc <= 1'b0;
 
         wb_single_read(2'h2, rval, err_flag);
-        if ((stall_cycles_seen != 0) || (rval !== 4'd8)) begin
-            $display("  [FAIL] Suite 3a: stalls=%0d, chg_cnt=%0d (exp 0, 8)", stall_cycles_seen, rval);
-            test_errors++;
+        if (FIFO_DEPTH_LOG2 >= 3) begin
+            if ((stall_cycles_seen != 0) || (rval !== 4'd8)) begin
+                $display("  [FAIL] Suite 3a: stalls=%0d, chg_cnt=%0d (exp 0, 8)", stall_cycles_seen, rval);
+                test_errors++;
+            end else begin
+                $display("  [PASS] Suite 3a: 8-beat write burst had 0 stalls and chg_cnt=8.");
+            end
         end else begin
-            $display("  [PASS] Suite 3a: 8-beat write burst had 0 stalls and chg_cnt=8.");
+            if ((stall_cycles_seen == 0) || (rval !== 4'd8)) begin
+                $display("  [FAIL] Suite 3a (DEPTH=%0d): stalls=%0d (exp >0), chg_cnt=%0d (exp 8)",
+                         (1 << FIFO_DEPTH_LOG2), stall_cycles_seen, rval);
+                test_errors++;
+            end else begin
+                $display("  [PASS] Suite 3a (DEPTH=%0d): 8-beat write burst throttled cleanly (stalls=%0d) and chg_cnt=8.",
+                         (1 << FIFO_DEPTH_LOG2), stall_cycles_seen);
+            end
         end
 
         wb_single_write(2'h3, 4'h0, err_flag);
@@ -403,22 +417,43 @@ module tb_part1_bursts_and_skew;
         end
         wb_cyc <= 1'b0;
 
-        osc_ok = (stall_cycles_seen == 0);
-        for (int i = 1; i < 8; i++) begin
-            if (burst_rdata[i] !== DATA_W'(burst_rdata[i-1] + 4'd1)) begin
-                osc_ok = 1'b0;
+        if (FIFO_DEPTH_LOG2 >= 3) begin
+            osc_ok = (stall_cycles_seen == 0);
+            for (int i = 1; i < 8; i++) begin
+                if (burst_rdata[i] !== DATA_W'(burst_rdata[i-1] + 4'd1)) begin
+                    osc_ok = 1'b0;
+                end
             end
-        end
-        if (!osc_ok) begin
-            $display("  [FAIL] Suite 4: stalls=%0d, seq=[%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d]",
-                     stall_cycles_seen,
-                     burst_rdata[0], burst_rdata[1], burst_rdata[2], burst_rdata[3],
-                     burst_rdata[4], burst_rdata[5], burst_rdata[6], burst_rdata[7]);
-            test_errors++;
+            if (!osc_ok) begin
+                $display("  [FAIL] Suite 4: stalls=%0d, seq=[%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d]",
+                         stall_cycles_seen,
+                         burst_rdata[0], burst_rdata[1], burst_rdata[2], burst_rdata[3],
+                         burst_rdata[4], burst_rdata[5], burst_rdata[6], burst_rdata[7]);
+                test_errors++;
+            end else begin
+                $display("  [PASS] Suite 4: 8-beat CLK_OSC_CNT read burst had 0 stalls and consecutive +1 steps: [%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d].",
+                         burst_rdata[0], burst_rdata[1], burst_rdata[2], burst_rdata[3],
+                         burst_rdata[4], burst_rdata[5], burst_rdata[6], burst_rdata[7]);
+            end
         end else begin
-            $display("  [PASS] Suite 4: 8-beat CLK_OSC_CNT read burst had 0 stalls and consecutive +1 steps: [%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d].",
-                     burst_rdata[0], burst_rdata[1], burst_rdata[2], burst_rdata[3],
-                     burst_rdata[4], burst_rdata[5], burst_rdata[6], burst_rdata[7]);
+            osc_ok = (stall_cycles_seen > 0);
+            for (int i = 1; i < 8; i++) begin
+                if (burst_rdata[i] === burst_rdata[i-1]) begin
+                    osc_ok = 1'b0;
+                end
+            end
+            if (!osc_ok) begin
+                $display("  [FAIL] Suite 4 (DEPTH=%0d): stalls=%0d, seq=[%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d]",
+                         (1 << FIFO_DEPTH_LOG2), stall_cycles_seen,
+                         burst_rdata[0], burst_rdata[1], burst_rdata[2], burst_rdata[3],
+                         burst_rdata[4], burst_rdata[5], burst_rdata[6], burst_rdata[7]);
+                test_errors++;
+            end else begin
+                $display("  [PASS] Suite 4 (DEPTH=%0d): 8-beat CLK_OSC_CNT read burst throttled cleanly (stalls=%0d) with advancing steps: [%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d].",
+                         (1 << FIFO_DEPTH_LOG2), stall_cycles_seen,
+                         burst_rdata[0], burst_rdata[1], burst_rdata[2], burst_rdata[3],
+                         burst_rdata[4], burst_rdata[5], burst_rdata[6], burst_rdata[7]);
+            end
         end
 
         // ----------------------------------------------------------------------

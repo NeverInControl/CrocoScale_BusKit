@@ -15,7 +15,7 @@ module tb_part3_watchdogs_and_stress;
 
     localparam int ADDR_W              = 2;
     localparam int DATA_W              = 4;
-    localparam int FIFO_DEPTH_LOG2     = 3;
+    parameter  int FIFO_DEPTH_LOG2     = 3;
     localparam int SYNC_STAGES         = 2;
     localparam int GATE_TIMEOUT_CYCLES = 32;
     localparam int RESP_TIMEOUT_CYCLES = 32;
@@ -46,7 +46,10 @@ module tb_part3_watchdogs_and_stress;
     logic [DATA_W-1:0] wb_wdat, wb_rdat;
 
 `ifdef GATE_LEVEL_SIM
-    wbb4_cdc_top u_dut (
+    `ifndef GLS_DUT_NAME
+        `define GLS_DUT_NAME wbb4_cdc_top
+    `endif
+    `GLS_DUT_NAME u_dut (
 `else
     wbb4_cdc_top #(
         .ADDR_W              (ADDR_W),
@@ -345,10 +348,15 @@ module tb_part3_watchdogs_and_stress;
         // ----------------------------------------------------------------------
         $display("[SUITE 12] Running 50-Burst Randomized Multi-Clock Stress with Scoreboard...");
         begin
-            logic [DATA_W-1:0] ref_scratch0 = 4'hA;
-            logic [DATA_W-1:0] ref_scratch1 = 4'h5;
-            bit                score_valid  = 1'b1;
-            int                verified_rds = 0;
+            logic [DATA_W-1:0] ref_scratch0;
+            logic [DATA_W-1:0] ref_scratch1;
+            bit                score_valid;
+            int                verified_rds;
+
+            ref_scratch0 = 4'hA;
+            ref_scratch1 = 4'h5;
+            score_valid  = 1'b1;
+            verified_rds = 0;
 
             for (int burst_idx = 0; burst_idx < 50; burst_idx++) begin
                 int unsigned rand_val;

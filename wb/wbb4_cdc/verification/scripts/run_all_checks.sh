@@ -7,17 +7,21 @@ TMP_DIR="$(mktemp -d /tmp/wbb4_cdc_checks_XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
 echo "======================================================================"
-echo " [1/4] Behavioral RTL Simulation + Jitter Injection (tb_part1..3)"
+echo " [1/4] Behavioral RTL Simulation + Jitter (FIFO_DEPTH_LOG2 = 3, 2, 1)"
 echo "======================================================================"
-for part in tb_part1_bursts_and_skew tb_part2_resets_and_aborts tb_part3_watchdogs_and_stress; do
-    (
-        cd "${ROOT_DIR}"
-        /usr/bin/iverilog -g2012 -DSIM_CDC_JITTER \
-            -o "${TMP_DIR}/${part}.vvp" \
-            -c "${ROOT_DIR}/wbb4_cdc_top.f" \
-            "${ROOT_DIR}/verification/tb/${part}.sv"
-    )
-    /usr/bin/vvp "${TMP_DIR}/${part}.vvp"
+for depth_log2 in 3 2 1; do
+    echo ">>> Testing FIFO_DEPTH_LOG2 = ${depth_log2} ($((1 << depth_log2)) entries) <<<"
+    for part in tb_part1_bursts_and_skew tb_part2_resets_and_aborts tb_part3_watchdogs_and_stress; do
+        (
+            cd "${ROOT_DIR}"
+            /usr/bin/iverilog -g2012 -DSIM_CDC_JITTER \
+                -P${part}.FIFO_DEPTH_LOG2=${depth_log2} \
+                -o "${TMP_DIR}/${part}_d${depth_log2}.vvp" \
+                -c "${ROOT_DIR}/wbb4_cdc_top.f" \
+                "${ROOT_DIR}/verification/tb/${part}.sv"
+        )
+        /usr/bin/vvp "${TMP_DIR}/${part}_d${depth_log2}.vvp"
+    done
 done
 
 echo "======================================================================"
