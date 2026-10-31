@@ -110,7 +110,7 @@ module cdc_reset_ctrlr #(
                 ST_REQ_HIGH: begin
                     src_req_n_q   <= 1'b0;
                     sw_rst_pend_q <= 1'b0;
-                    if (dst_ack_in_src) begin
+                    if (dst_ack_in_src && !sw_rst_req_src_i) begin
                         src_state_q <= ST_CLR_HOLD;
                     end
                 end
@@ -176,10 +176,37 @@ module cdc_reset_ctrlr #(
     );
 
 `ifdef FORMAL
-    logic [3:0] f_step_q = 4'd0;
+    logic [3:0] f_step_q         = 4'd0;
+    logic       f_src_prev_q     = 1'b0;
+    logic       f_dst_prev_q     = 1'b0;
+    logic       f_saw_src_edge_q = 1'b0;
+    logic       f_saw_dst_edge_q = 1'b0;
+    logic [4:0] f_calm_rounds_q  = 5'd0;
+
+    wire f_src_posedge = clk_src_i && !f_src_prev_q;
+    wire f_dst_posedge = clk_dst_i && !f_dst_prev_q;
+    wire f_saw_both    = (f_saw_src_edge_q || f_src_posedge) && (f_saw_dst_edge_q || f_dst_posedge);
+
     always @($global_clock) begin
         if (f_step_q != 4'hF) begin
             f_step_q <= f_step_q + 4'd1;
+        end
+        f_src_prev_q <= clk_src_i;
+        f_dst_prev_q <= clk_dst_i;
+
+        if ((f_step_q < 4'd4) || rst_src_all || rst_dst_all || sw_rst_req_src_i || sw_rst_pend_q) begin
+            f_saw_src_edge_q <= 1'b0;
+            f_saw_dst_edge_q <= 1'b0;
+            f_calm_rounds_q  <= 5'd0;
+        end else if (f_saw_both) begin
+            f_saw_src_edge_q <= 1'b0;
+            f_saw_dst_edge_q <= 1'b0;
+            if (f_calm_rounds_q != 5'd31) begin
+                f_calm_rounds_q <= f_calm_rounds_q + 5'd1;
+            end
+        end else begin
+            if (f_src_posedge) f_saw_src_edge_q <= 1'b1;
+            if (f_dst_posedge) f_saw_dst_edge_q <= 1'b1;
         end
     end
 
@@ -193,6 +220,15 @@ module cdc_reset_ctrlr #(
                 assert (isolate_dst_o);
                 assert (isolate_src_o);
             end
+            // Stage A Bounded Post-Fault Recovery / Deadlock-Freedom Assertion
+            if (!rst_src_all && !rst_dst_all && !sw_rst_req_src_i && !sw_rst_pend_q && (f_calm_rounds_q >= 5'd16)) begin
+                assert (src_state_q   == ST_ACTIVE);
+                assert (isolate_src_o == 1'b0);
+                assert (isolate_dst_o == 1'b0);
+                assert (clr_src_o     == 1'b0);
+                assert (clr_dst_o     == 1'b0);
+            end
+            cover ((f_calm_rounds_q == 5'd16) && (src_state_q == ST_ACTIVE));
         end
     end
 `endif

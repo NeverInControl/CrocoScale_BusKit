@@ -299,15 +299,49 @@ module wb_b4_cdc #(
     );
 
 `ifdef FORMAL
-    logic [3:0]        f_step_q = 4'd0;
-    logic              f_slv_stalled_q = 1'b0;
-    logic              f_slv_we_prev_q = 1'b0;
+    logic [3:0]        f_step_q         = 4'd0;
+    logic              f_slv_stalled_q  = 1'b0;
+    logic              f_slv_we_prev_q  = 1'b0;
     logic [ADDR_W-1:0] f_slv_adr_prev_q = '0;
     logic [DATA_W-1:0] f_slv_dat_prev_q = '0;
+
+    logic              f_wb_prev_q      = 1'b0;
+    logic              f_slv_prev_q     = 1'b0;
+    logic              f_saw_wb_edge_q  = 1'b0;
+    logic              f_saw_slv_edge_q = 1'b0;
+    logic [4:0]        f_idle_rounds_q  = 5'd0;
+    logic              f_fault_seen_q   = 1'b0;
+
+    wire f_wb_posedge  = clk_wb_i  && !f_wb_prev_q;
+    wire f_slv_posedge = clk_slv_i && !f_slv_prev_q;
+    wire f_saw_both    = (f_saw_wb_edge_q || f_wb_posedge) && (f_saw_slv_edge_q || f_slv_posedge);
 
     always @($global_clock) begin
         if (f_step_q != 4'hF) begin
             f_step_q <= f_step_q + 4'd1;
+        end
+        f_wb_prev_q  <= clk_wb_i;
+        f_slv_prev_q <= clk_slv_i;
+
+        if (f_step_q < 4'd4) begin
+            f_fault_seen_q <= 1'b0;
+        end else if (rst_wb_i || rst_slv_i || resp_timeout_fire_q || (discard_cnt_q != '0)) begin
+            f_fault_seen_q <= 1'b1;
+        end
+
+        if ((f_step_q < 4'd4) || rst_wb_i || rst_slv_i || isolate_wb || isolate_slv || s_wb_cyc_i || s_wb_stb_i || m_wb_stall_i) begin
+            f_saw_wb_edge_q  <= 1'b0;
+            f_saw_slv_edge_q <= 1'b0;
+            f_idle_rounds_q  <= 5'd0;
+        end else if (f_saw_both) begin
+            f_saw_wb_edge_q  <= 1'b0;
+            f_saw_slv_edge_q <= 1'b0;
+            if (f_idle_rounds_q != 5'd31) begin
+                f_idle_rounds_q <= f_idle_rounds_q + 5'd1;
+            end
+        end else begin
+            if (f_wb_posedge)  f_saw_wb_edge_q  <= 1'b1;
+            if (f_slv_posedge) f_saw_slv_edge_q <= 1'b1;
         end
     end
 
@@ -353,6 +387,18 @@ module wb_b4_cdc #(
                     assert (m_wb_dat_o == f_slv_dat_prev_q);
                 end
             end
+            // Stage B Bounded Post-Isolation Drain & Ready Assertion
+            if (!rst_wb_i && !rst_slv_i && !isolate_wb && !isolate_slv &&
+                !s_wb_cyc_i && !s_wb_stb_i && (f_idle_rounds_q >= 5'd6)) begin
+                assert (outstanding_cnt_q  == '0);
+                assert (discard_cnt_q      == '0);
+                assert (req_fifo_empty     == 1'b1);
+                assert (resp_fifo_empty    == 1'b1);
+                assert (slv_inflight_cnt_q == '0);
+                assert (s_wb_stall_o       == 1'b0);
+            end
+            cover ((f_idle_rounds_q == 5'd6) && !s_wb_stall_o);
+            cover (f_fault_seen_q && !isolate_wb && !isolate_slv && !s_wb_stall_o && s_wb_ack_o);
         end
     end
 `endif

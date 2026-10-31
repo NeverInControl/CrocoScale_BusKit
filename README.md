@@ -131,6 +131,7 @@ CrocoScale_BusKit/
             │   ├── tb_part1_bursts_and_skew.sv
             │   ├── tb_part2_resets_and_aborts.sv
             │   ├── tb_part3_watchdogs_and_stress.sv
+            │   ├── tb_part4_standalone_slave.sv
             │   └── formal_wbb4_cdc.sv
             └── scripts/
                 ├── run_all_checks.sh

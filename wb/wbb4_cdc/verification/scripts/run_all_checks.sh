@@ -11,7 +11,7 @@ echo " [1/4] Behavioral RTL Simulation + Jitter (FIFO_DEPTH_LOG2 = 3, 2, 1)"
 echo "======================================================================"
 for depth_log2 in 3 2 1; do
     echo ">>> Testing FIFO_DEPTH_LOG2 = ${depth_log2} ($((1 << depth_log2)) entries) <<<"
-    for part in tb_part1_bursts_and_skew tb_part2_resets_and_aborts tb_part3_watchdogs_and_stress; do
+    for part in tb_part1_bursts_and_skew tb_part2_resets_and_aborts tb_part3_watchdogs_and_stress tb_part4_standalone_slave; do
         (
             cd "${ROOT_DIR}"
             /usr/bin/iverilog -g2012 -DSIM_CDC_JITTER \
