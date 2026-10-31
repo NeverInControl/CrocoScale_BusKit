@@ -1,0 +1,29 @@
+# ==============================================================================
+# CrocoScale_BusKit — .gitignore
+# ==============================================================================
+
+# Simulation & Compilation Outputs
+*.vvp
+*.vcd
+*.fst
+*.ghw
+*.out
+a.out
+
+# Synthesis & STA Temporary Logs / Netlists
+*.log
+*.jou
+*.pb
+*.str
+*.Xil/
+*_synth.v
+*_gls_netlist.v
+*.json
+*.smt2
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.vscode/
