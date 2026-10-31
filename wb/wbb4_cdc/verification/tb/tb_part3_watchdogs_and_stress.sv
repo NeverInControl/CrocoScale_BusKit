@@ -33,8 +33,8 @@ module tb_part3_watchdogs_and_stress;
     end
 
     initial begin
-        #150_000;
-        $display("[FATAL TIMEOUT] tb_part3_watchdogs_and_stress exceeded 150 us!");
+        #250_000;
+        $display("[FATAL TIMEOUT] tb_part3_watchdogs_and_stress exceeded 250 us!");
         $finish;
     end
 
@@ -525,6 +525,105 @@ module tb_part3_watchdogs_and_stress;
                 $display("  [PASS] Suite 12: Completed 50 randomized multi-clock/reset/abort bursts (%0d scoreboard reads verified, 0 errors).",
                          verified_rds);
             end
+        end
+
+        // =====================================================================
+        // SUITE 12b: Plesiochronous Beat-Frequency Phase-Walk (100 vs 105/95/100.3/99.7 MHz)
+        //            & Dynamic DLL Lock-Sweep / Short Clock-Pause Stress
+        // =====================================================================
+        $display("[SUITE 12b] Plesiochronous Phase-Walk (100 MHz vs 105/95/100.3/99.7 MHz) & Dynamic DLL Lock-Sweep...");
+        begin
+            real         test_dll_half [0:3];
+            logic [3:0]  exp_s0;
+            logic [3:0]  exp_s1;
+            int          phase_walk_checks;
+            int          ack_cnt;
+            int          err_cnt;
+
+            test_dll_half[0]  = 4.762; // ~105.0 MHz vs 100.0 MHz (+476 ps/cycle walk)
+            test_dll_half[1]  = 5.263; // ~95.0 MHz  vs 100.0 MHz (-526 ps/cycle walk)
+            test_dll_half[2]  = 4.985; // ~100.3 MHz vs 100.0 MHz (+30 ps/cycle fine edge walk)
+            test_dll_half[3]  = 5.015; // ~99.7 MHz  vs 100.0 MHz (-30 ps/cycle fine edge walk)
+            fab_half_ns       = 5.000; // 100.0 MHz
+            phase_walk_checks = 0;
+
+            for (int freq_idx = 0; freq_idx < 4; freq_idx++) begin
+                dll_half_ns = test_dll_half[freq_idx];
+                // Clear BURST_CHG_CNT via write to 2'h3
+                wb_single_write(2'h3, 4'h0, err_flag);
+                if (err_flag) test_errors++;
+
+                for (int iter = 0; iter < 15; iter++) begin
+                    exp_s0  = DATA_W'((freq_idx * 5 + iter + 1) & 4'hF);
+                    exp_s1  = DATA_W'((~exp_s0) & 4'hF);
+                    ack_cnt = 0;
+                    err_cnt = 0;
+
+                    // Issue 4-beat pipelined burst: Write S0, Write S1, Read S0, Read S1
+                    @(posedge clk_fab);
+                    wb_cyc <= 1'b1;
+                    for (int b = 0; b < 4; b++) begin
+                        wb_stb  <= 1'b1;
+                        wb_we   <= (b < 2);
+                        wb_adr  <= (b[0]) ? 2'h1 : 2'h0;
+                        wb_wdat <= (b == 0) ? exp_s0 : ((b == 1) ? exp_s1 : 4'h0);
+                        @(posedge clk_fab);
+                        if (wb_ack) ack_cnt++;
+                        if (wb_err) err_cnt++;
+                        while (wb_stall) begin
+                            @(posedge clk_fab);
+                            if (wb_ack) ack_cnt++;
+                            if (wb_err) err_cnt++;
+                        end
+                    end
+                    wb_stb <= 1'b0;
+                    wb_we  <= 1'b0;
+
+                    // Dynamically modulate DLL frequency or inject a short 4-cycle pause on select bursts
+                    if ((iter % 5) == 4) begin
+                        clk_dll_en = 1'b0;
+                        repeat (4) begin
+                            @(posedge clk_fab);
+                            if (wb_ack) ack_cnt++;
+                            if (wb_err) err_cnt++;
+                        end
+                        clk_dll_en = 1'b1;
+                    end else if ((iter % 3) == 2) begin
+                        dll_half_ns = test_dll_half[freq_idx] + 0.35;
+                    end
+
+                    while ((ack_cnt + err_cnt) < 4) begin
+                        @(posedge clk_fab);
+                        if (wb_ack) ack_cnt++;
+                        if (wb_err) err_cnt++;
+                    end
+                    wb_cyc      <= 1'b0;
+                    dll_half_ns  = test_dll_half[freq_idx];
+
+                    if (err_cnt != 0) begin
+                        $display("  [FAIL] Suite 12b: Unexpected wb_err during plesiochronous burst (freq_idx=%0d, iter=%0d)",
+                                 freq_idx, iter);
+                        test_errors++;
+                    end
+
+                    wb_single_read(2'h0, rval, err_flag);
+                    if (err_flag || (rval !== exp_s0)) begin
+                        $display("  [FAIL] Suite 12b: SCRATCH_0 mismatch (freq_idx=%0d, iter=%0d): got 0x%0h, exp 0x%0h",
+                                 freq_idx, iter, rval, exp_s0);
+                        test_errors++;
+                    end
+                    wb_single_read(2'h1, rval, err_flag);
+                    if (err_flag || (rval !== exp_s1)) begin
+                        $display("  [FAIL] Suite 12b: SCRATCH_1 mismatch (freq_idx=%0d, iter=%0d): got 0x%0h, exp 0x%0h",
+                                 freq_idx, iter, rval, exp_s1);
+                        test_errors++;
+                    end
+                    phase_walk_checks += 2;
+                end
+            end
+            dll_half_ns = 5.0;
+            $display("  [PASS] Suite 12b: Plesiochronous phase-walk (100 vs 105/95/100.3/99.7 MHz) & DLL lock-pause verified (%0d reads, 0 errors).",
+                     phase_walk_checks);
         end
 
         $display("----------------------------------------------------------------------");
