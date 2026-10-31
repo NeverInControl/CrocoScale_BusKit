@@ -277,6 +277,57 @@ module tb_part3_watchdogs_and_stress;
             $display("  [PASS] Suite 9b: Bridge recovered automatically once clk_dll resumed (SCRATCH_0=0x%0h).", rval);
         end
 
+        // Suite 9c: Timed-out write after 1 clk_dll edge must NOT execute as a zombie write when clk_dll resumes
+        @(posedge clk_fab);
+        wb_cyc  <= 1'b1;
+        wb_stb  <= 1'b1;
+        wb_we   <= 1'b1;
+        wb_adr  <= 2'h0;
+        wb_wdat <= 4'hE;
+        do @(posedge clk_fab); while (wb_stall);
+        wb_stb <= 1'b0;
+        @(posedge clk_dll);
+        #1;
+        clk_dll_en = 1'b0;
+        while (!(wb_ack || wb_err)) @(posedge clk_fab);
+        err_flag = wb_err;
+        wb_cyc <= 1'b0;
+        wb_we  <= 1'b0;
+        clk_dll_en = 1'b1;
+        repeat (12) @(posedge clk_fab);
+        wb_single_read(2'h0, rval, err_flag);
+        if (err_flag || (rval !== 4'h9)) begin
+            $display("  [FAIL] Suite 9c: Timed-out write 0xE overwrote SCRATCH_0=0x%0h (exp 0x9)!", rval);
+            test_errors++;
+        end else begin
+            $display("  [PASS] Suite 9c: Timed-out write 0xE flushed cleanly without zombie execution (SCRATCH_0=0x9).");
+        end
+
+        // Suite 9d: Master-aborted write during dead clk_dll must be flushed by watchdog after RESP_TIMEOUT_CYCLES
+        clk_dll_en = 1'b0;
+        repeat (2) @(posedge clk_fab);
+        @(posedge clk_fab);
+        wb_cyc  <= 1'b1;
+        wb_stb  <= 1'b1;
+        wb_we   <= 1'b1;
+        wb_adr  <= 2'h0;
+        wb_wdat <= 4'hD;
+        do @(posedge clk_fab); while (wb_stall);
+        wb_stb <= 1'b0;
+        wb_we  <= 1'b0;
+        repeat (4) @(posedge clk_fab);
+        wb_cyc <= 1'b0; // Master abort before watchdog fires
+        repeat (RESP_TIMEOUT_CYCLES + 8) @(posedge clk_fab);
+        clk_dll_en = 1'b1;
+        repeat (12) @(posedge clk_fab);
+        wb_single_read(2'h0, rval, err_flag);
+        if (err_flag || (rval !== 4'h9)) begin
+            $display("  [FAIL] Suite 9d: Aborted write 0xD during dead clk_dll overwrote SCRATCH_0=0x%0h (exp 0x9)!", rval);
+            test_errors++;
+        end else begin
+            $display("  [PASS] Suite 9d: Aborted write 0xD during dead clk_dll flushed by watchdog (SCRATCH_0=0x9).");
+        end
+
         // ----------------------------------------------------------------------
         // SUITE 10: Stuck Reset "Wait at the Gates" (EN_GATE_TIMEOUT=1 vs 0)
         // ----------------------------------------------------------------------

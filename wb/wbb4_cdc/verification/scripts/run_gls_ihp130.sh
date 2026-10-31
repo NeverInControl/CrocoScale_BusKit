@@ -24,21 +24,27 @@ sed -e 's/delayed_\([A-Za-z0-9_]*\)/\1/g' \
 
 cat << 'EOF' >> "${STDCELL_FUNC_V}"
 `timescale 1ns / 1ps
-module sg13cmos5l_dfrbpq_1_sync_meta (Q, CLK, D, RESET_B);
+module sg13cmos5l_dfrbpq_1_sync_meta #(
+    parameter integer SEED = 32'hACE1_CAFE
+) (Q, CLK, D, RESET_B);
     output Q;
     input  CLK, D, RESET_B;
     reg notifier;
     wire int_fwire_IQ, int_fwire_r, xcr_0;
     reg  d_skewed;
-    integer lfsr_q = 32'hACE1_CAFE;
+    integer lfsr_q;
 
-    always @(posedge CLK) begin
-        lfsr_q <= {lfsr_q[30:0], lfsr_q[31] ^ lfsr_q[21] ^ lfsr_q[1] ^ lfsr_q[0]};
+    initial begin
+        lfsr_q = SEED;
     end
 
-    // Physical point-to-point CDC wire arrival skew (0 ps to 350 ps per transition)
+    always @(posedge CLK) begin
+        lfsr_q <= {lfsr_q[30:0], lfsr_q[31] ^ lfsr_q[21] ^ lfsr_q[1] ^ lfsr_q[0]} ^ {31'd0, D};
+    end
+
+    // Uncorrelated per-bit CDC wire arrival skew spanning 0.00 ns to 1.75 ns (the full 2.0-ns SDC window)
     always @(D) begin
-        d_skewed <= #(0.05 * (lfsr_q & 32'd7)) D;
+        d_skewed <= #(0.25 * (lfsr_q & 32'd7)) D;
     end
 
     not (int_fwire_r, RESET_B);
@@ -85,10 +91,16 @@ yosys -q -p "
     write_verilog -noattr -noexpr ${GLS_NETLIST};
 "
 
-# Swap Stage-0 synchronizer flip-flops (*sync_meta_q*) to the CDC skew-injecting cell model
-sed -i 's/sg13cmos5l_dfrbpq_1 \([^ ]*sync_meta_q\)/sg13cmos5l_dfrbpq_1_sync_meta \1/g' "${GLS_NETLIST}"
+# Swap Stage-0 synchronizer flip-flops (*sync_meta_q*) to the CDC skew-injecting cell model with unique per-flop seeds
+awk '
+    /sg13cmos5l_dfrbpq_1 [^ ]*sync_meta_q/ {
+        seed_cnt++;
+        sub(/sg13cmos5l_dfrbpq_1/, sprintf("sg13cmos5l_dfrbpq_1_sync_meta #(.SEED(%d))", 135791 + seed_cnt * 7919));
+    }
+    { print }
+' "${GLS_NETLIST}" > "${GLS_NETLIST}.seeded" && mv "${GLS_NETLIST}.seeded" "${GLS_NETLIST}"
 SYNC_META_CNT=$(grep -c "sg13cmos5l_dfrbpq_1_sync_meta" "${GLS_NETLIST}" || true)
-echo " Injected 2.0-ns setup-window CDC skew model on ${SYNC_META_CNT} Stage-0 gate-level sync flops."
+echo " Injected uncorrelated per-bit 2.0-ns setup-window CDC skew & metastability model on ${SYNC_META_CNT} Stage-0 sync flops."
 
 echo "======================================================================"
 echo " Running Gate-Level Simulation (GLS) across FIFO_DEPTH_LOG2 = 3, 2, 1..."

@@ -132,7 +132,7 @@ module wb_b4_cdc #(
             resp_timeout_fire_q <= 1'b0;
         end else begin
             resp_timeout_fire_q <= 1'b0;
-            if (isolate_wb || err_drain_mode_q || (outstanding_cnt_q == '0) || resp_fifo_rd_en) begin
+            if (isolate_wb || err_drain_mode_q || ((outstanding_cnt_q == '0) && (discard_cnt_q == '0)) || resp_fifo_rd_en) begin
                 resp_wdog_cnt_q <= '0;
             end else if (EN_RESP_TIMEOUT != 0) begin
                 if (resp_wdog_cnt_q == RESP_WDOG_W'(RESP_TIMEOUT_CYCLES - 1)) begin

@@ -48,7 +48,7 @@ module cdc_reset_ctrlr #(
         .SYNC_STAGES (SYNC_STAGES)
     ) u_sync_src_rst_to_dst (
         .clk_i       (clk_dst_i),
-        .rst_async_i (rst_src_i),
+        .rst_async_i (rst_src_i || sw_rst_req_src_i),
         .rst_sync_o  (src_rst_in_dst)
     );
 
